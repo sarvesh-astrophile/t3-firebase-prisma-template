@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { sealData } from "iron-session";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { auth as adminAuth } from "@/lib/firebase-admin"; // Correct import
+import { db } from "@/server/db"; // Added import for Prisma client
 
 const SESSION_COOKIE_NAME = "session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 5; // 5 days
@@ -31,7 +32,7 @@ const sessionOptions = {
 export const authRouter = createTRPCRouter({
   createSession: publicProcedure
     .input(z.object({ idToken: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const cookieStore = await cookies(); // Get cookie store
       try {
         // Verify the ID token
@@ -45,12 +46,22 @@ export const authRouter = createTRPCRouter({
           });
         }
 
+        // Upsert user in the database
+        await ctx.db.user.upsert({
+          where: { id: decodedToken.uid },
+          update: { email: decodedToken.email ?? null }, // Update email if user exists
+          create: {
+            id: decodedToken.uid,
+            email: decodedToken.email ?? null, // Create user with email (or null if not present)
+          },
+        });
+        console.log("User synced with database:", decodedToken.uid);
+
         // Prepare session data - include only necessary, non-sensitive info
-        // Or you might store a reference to a server-side session store ID
         const sessionData = {
           uid: decodedToken.uid,
           // Add other relevant data if needed, e.g., roles, email
-          // email: decodedToken.email, // Uncomment if needed
+          // email: decodedToken.email, // Email is now in DB, maybe not needed in session
         };
 
         // Encrypt the session data using iron-session
@@ -67,11 +78,11 @@ export const authRouter = createTRPCRouter({
         console.log("Secure session cookie created for UID:", decodedToken.uid);
         return { success: true };
       } catch (error) {
-        console.error("Error creating session:", error);
+        console.error("Error creating session or syncing user:", error);
         // Throw a TRPCError so the client knows it failed
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to create session.",
+          message: "Failed to create session or sync user.",
           cause: error, // Optional: include the original error cause
         });
       }
