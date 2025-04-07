@@ -1,18 +1,38 @@
 import { z } from "zod";
 import { cookies } from "next/headers";
 import { TRPCError } from "@trpc/server";
-
+import { sealData } from "iron-session";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { auth as adminAuth } from "@/lib/firebase-admin"; // Correct import
 
 const SESSION_COOKIE_NAME = "session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 5; // 5 days
 
+// Session options for iron-session
+// Ensure SESSION_SECRET is set in your .env file and is at least 32 characters long
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+  throw new Error(
+    "SESSION_SECRET environment variable is not set or is less than 32 characters long. Please define it in your .env file.",
+  );
+}
+
+const sessionOptions = {
+  password: process.env.SESSION_SECRET,
+  cookieName: SESSION_COOKIE_NAME,
+  cookieOptions: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", // Use secure cookies in production
+    maxAge: SESSION_DURATION_SECONDS, // Use maxAge directly here if preferred, otherwise calculate expires
+    path: "/", // Cookie available across the entire site
+    sameSite: "lax" as const, // Protects against CSRF attacks, use 'lax' or 'strict'
+  },
+};
+
 export const authRouter = createTRPCRouter({
   createSession: publicProcedure
     .input(z.object({ idToken: z.string() }))
     .mutation(async ({ input }) => {
-      const cookieStore = await cookies(); // Get cookie store and await it
+      const cookieStore = await cookies(); // Get cookie store
       try {
         // Verify the ID token
         const decodedToken = await adminAuth.verifyIdToken(input.idToken);
@@ -25,21 +45,26 @@ export const authRouter = createTRPCRouter({
           });
         }
 
-        // Create the session cookie.
-        // IMPORTANT: In a real app, use a robust session library (like iron-session)
-        // to encrypt/sign the cookie content. Storing the token directly is NOT secure for production.
-        // For this example, we'll store the token (replace with proper session data).
-        const sessionCookie = input.idToken; // Replace with actual session data/token
+        // Prepare session data - include only necessary, non-sensitive info
+        // Or you might store a reference to a server-side session store ID
+        const sessionData = {
+          uid: decodedToken.uid,
+          // Add other relevant data if needed, e.g., roles, email
+          // email: decodedToken.email, // Uncomment if needed
+        };
 
-        await cookieStore.set(SESSION_COOKIE_NAME, sessionCookie, { // Use cookie store
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production", // Use secure cookies in production
-          maxAge: SESSION_DURATION_SECONDS,
-          path: "/", // Cookie available across the entire site
-          sameSite: "lax", // Protects against CSRF attacks
-        });
+        // Encrypt the session data using iron-session
+        const sealedSession = await sealData(sessionData, sessionOptions);
 
-        console.log("Session cookie created for UID:", decodedToken.uid);
+        // Set the encrypted session cookie
+        const cookieStore = await cookies(); // Get cookie store
+        cookieStore.set(
+          sessionOptions.cookieName, // Use name from options
+          sealedSession, // Use the sealed data
+          sessionOptions.cookieOptions // Pass the cookie options
+        );
+
+        console.log("Secure session cookie created for UID:", decodedToken.uid);
         return { success: true };
       } catch (error) {
         console.error("Error creating session:", error);
@@ -53,10 +78,10 @@ export const authRouter = createTRPCRouter({
     }),
 
   deleteSession: publicProcedure.mutation(async () => {
-    const cookieStore = await cookies(); // Get cookie store and await it
+    const cookieStore = await cookies(); // Get cookie store
     try {
-      // Clear the session cookie
-      await cookieStore.delete(SESSION_COOKIE_NAME); // Use cookie store
+      // Clear the session cookie using the name from options
+      cookieStore.delete(sessionOptions.cookieName);
       console.log("Session cookie deleted.");
       return { success: true };
     } catch (error) {
