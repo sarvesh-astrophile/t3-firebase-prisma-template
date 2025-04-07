@@ -1,0 +1,44 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+}
+
+// Enum for Todo statuses
+enum TodoStatus {
+    BACKLOG
+    TODO
+    IN_PROGRESS
+    DONE
+    CANCELED
+}
+
+// User model - Maps to your authenticated users (e.g., via Firebase Auth)
+model User {
+    id    String  @id // Firebase UID or other unique identifier
+    email String? @unique // Optional: Store email if needed
+
+    todos Todo[] // Relation to User's todos
+}
+
+// Todo model
+model Todo {
+    id          Int        @id @default(autoincrement())
+    title       String
+    description String? // Optional description
+    status      TodoStatus @default(TODO) // Status from the enum, defaults to TODO
+    createdAt   DateTime   @default(now())
+    updatedAt   DateTime   @updatedAt
+
+    userId String // Foreign key to User model
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade) // Relation field
+
+    @@index([userId]) // Index for faster lookups by user
+    @@index([status]) // Index for faster lookups by status
+}
