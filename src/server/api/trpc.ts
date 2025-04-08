@@ -36,20 +36,28 @@ const sessionPassword = process.env.SESSION_SECRET;
  *
  * @see https://trpc.io/docs/server/context
  */
-export const createTRPCContext = async (opts: { headers: Headers }) => {
-	// Helper to get cookies from headers
-	const getCookie = (name: string): string | undefined => {
-		const cookieHeader = opts.headers.get("cookie");
-		if (!cookieHeader) return undefined;
-		const cookies = cookieHeader.split(";").map(c => c.trim());
-		const cookie = cookies.find(c => c.startsWith(`${name}=`));
-		return cookie ? cookie.split("=")[1] : undefined;
+export const createTRPCContext = async (opts: {
+	headers: Headers;
+	// Use an inline type for the expected shape of the cookies store
+	cookies: {
+		get: (name: string) => { value: string } | undefined;
+		// Add other methods if needed, e.g., has, getAll
 	};
+}) => {
+	// // Helper to get cookies from headers (No longer primary method)
+	// const getCookie = (name: string): string | undefined => {
+	// 	const cookieHeader = opts.headers.get("cookie");
+	// 	if (!cookieHeader) return undefined;
+	// 	const cookiesArr = cookieHeader.split(";").map(c => c.trim());
+	// 	const cookie = cookiesArr.find(c => c.startsWith(`${name}=`));
+	// 	return cookie ? cookie.split("=")[1] : undefined;
+	// };
 
 	return {
 		db,
 		headers: opts.headers,
-		getCookie, // Make the cookie getter available in context
+		cookies: opts.cookies, // Pass the cookies store into context
+		// getCookie, // Can remove this if not used elsewhere
 	};
 };
 
@@ -59,9 +67,9 @@ interface SessionUser {
 	// Add other properties stored in the session if needed, e.g., email
 }
 
-// Define the context type including the optional user
-// This helps with type safety in protected procedures
-type TRPCContextWithUser = Awaited<ReturnType<typeof createTRPCContext>> & {
+// Adjust context type definition if necessary (it should infer correctly)
+type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
+type TRPCContextWithUser = TRPCContext & {
 	user?: SessionUser;
 };
 
@@ -72,7 +80,7 @@ type TRPCContextWithUser = Awaited<ReturnType<typeof createTRPCContext>> & {
  * ZodErrors so that you get typesafety on the frontend if your procedure fails due to validation
  * errors on the backend.
  */
-const t = initTRPC.context<typeof createTRPCContext>().create({
+const t = initTRPC.context<TRPCContext>().create({
 	transformer: superjson,
 	errorFormatter({ shape, error }) {
 		return {
@@ -141,36 +149,38 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 
 // Middleware to check if the user is authenticated
 const isAuthenticated = t.middleware(async ({ ctx, next }) => {
-	const sessionCookie = ctx.getCookie(SESSION_COOKIE_NAME);
+	// Remove logging
+	const sessionCookie = ctx.cookies.get(SESSION_COOKIE_NAME)?.value;
+	// console.log('[isAuthenticated] Cookie Data:', ctx.cookies.get(SESSION_COOKIE_NAME));
+	// console.log('[isAuthenticated] Cookie Value:', sessionCookie);
 
 	if (!sessionCookie) {
+		// console.error('[isAuthenticated] No session cookie found.');
 		throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated." });
 	}
 
 	try {
-		// Attempt to unseal the session data
 		const sessionData = await unsealData<SessionUser>(sessionCookie, {
 			password: sessionPassword,
 		});
 
-		// Check if the essential user identifier (uid) is present
 		if (!sessionData?.uid) {
+			// console.error('[isAuthenticated] Invalid session data after unsealing.');
 			throw new TRPCError({
 				code: "UNAUTHORIZED",
 				message: "Invalid session data.",
 			});
 		}
 
-		// If successful, attach the user data to the context
+		// console.log('[isAuthenticated] Authentication successful for UID:', sessionData.uid);
 		return next({
 			ctx: {
 				...ctx,
-				user: sessionData, // Attach the whole unsealed data as user context
-			} satisfies TRPCContextWithUser, // Assert the context type
+				user: sessionData,
+			} satisfies TRPCContextWithUser,
 		});
 	} catch (error) {
-		// This catches errors from unsealData (e.g., bad password, tampered cookie)
-		console.error("Session unsealing failed:", error);
+		// console.error("[isAuthenticated] Session unsealing failed:", error);
 		throw new TRPCError({
 			code: "UNAUTHORIZED",
 			message: "Invalid or expired session.",

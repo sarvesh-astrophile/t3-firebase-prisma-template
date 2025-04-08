@@ -15,6 +15,7 @@ import { toast } from "sonner"; // Import toast for feedback
 type AuthContextType = {
   user: User | null;
   loading: boolean;
+  isServerSessionReady: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -22,6 +23,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  isServerSessionReady: false,
   signIn: async () => {},
   signOut: async () => {},
 });
@@ -31,6 +33,7 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isServerSessionReady, setIsServerSessionReady] = useState(false);
 
   // tRPC mutations
   const createSessionMutation = api.auth.createSession.useMutation({
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+      setIsServerSessionReady(true);
 
       if (currentUser) {
         // User is signed in (or was already signed in)
@@ -129,7 +133,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ user, loading, isServerSessionReady, signIn, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   );

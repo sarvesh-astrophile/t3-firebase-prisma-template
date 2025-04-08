@@ -21,7 +21,7 @@ const sessionOptions = {
   password: process.env.SESSION_SECRET,
   cookieName: SESSION_COOKIE_NAME,
   cookieOptions: {
-    httpOnly: true,
+    httpOnly: true, // REVERT BACK TO TRUE
     secure: process.env.NODE_ENV === "production", // Use secure cookies in production
     maxAge: SESSION_DURATION_SECONDS, // Use maxAge directly here if preferred, otherwise calculate expires
     path: "/", // Cookie available across the entire site
