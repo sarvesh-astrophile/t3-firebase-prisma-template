@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -24,8 +25,8 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 export function LoginForm() {
+  const { signIn: signInWithGoogle, user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const { signIn: signInWithGoogle } = useAuth();
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -37,12 +38,17 @@ export function LoginForm() {
     },
   });
 
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.push("/dashboard");
+    }
+  }, [user, authLoading, router]);
+
   const onSubmit = async (data: FormData) => {
     try {
       setError(null);
       setIsLoading(true);
       await signInWithEmailAndPassword(auth, data.email, data.password);
-      router.push("/dashboard");
     } catch (err) {
       setError(getFirebaseErrorMessage(err));
     } finally {
@@ -55,9 +61,8 @@ export function LoginForm() {
       setError(null);
       setIsLoading(true);
       await signInWithGoogle();
-      router.push("/dashboard");
     } catch (err) {
-      setError(getFirebaseErrorMessage(err));
+      console.error("Error initiating Google Sign-In from form:", err);
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +85,7 @@ export function LoginForm() {
             type="email"
             placeholder="name@example.com"
             {...form.register("email")}
-            disabled={isLoading}
+            disabled={isLoading || authLoading}
           />
           {form.formState.errors.email && (
             <p className="text-sm text-red-500">
@@ -95,7 +100,7 @@ export function LoginForm() {
             id="password"
             type="password"
             {...form.register("password")}
-            disabled={isLoading}
+            disabled={isLoading || authLoading}
           />
           {form.formState.errors.password && (
             <p className="text-sm text-red-500">
@@ -104,7 +109,11 @@ export function LoginForm() {
           )}
         </div>
 
-        <Button type="submit" className="w-full" disabled={isLoading}>
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={isLoading || authLoading}
+        >
           {isLoading ? "Signing in..." : "Sign in"}
         </Button>
       </form>
@@ -125,7 +134,7 @@ export function LoginForm() {
         type="button"
         className="w-full"
         onClick={handleGoogleSignIn}
-        disabled={isLoading}
+        disabled={isLoading || authLoading}
       >
         <svg
           className="mr-2 h-4 w-4"
@@ -154,7 +163,7 @@ export function LoginForm() {
             fill="#EA4335"
           />
         </svg>
-        Continue with Google
+        {isLoading ? "Continuing..." : "Continue with Google"}
       </Button>
     </div>
   );

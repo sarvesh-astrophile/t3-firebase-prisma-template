@@ -6,11 +6,23 @@
  * TL;DR - This is where all the tRPC server stuff is created and plugged in. The pieces you will
  * need to use are documented accordingly near the end.
  */
-import { initTRPC } from "@trpc/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
+import { unsealData } from "iron-session";
+import { cookies } from "next/headers"; // Import cookies helper
 
 import { db } from "@/server/db";
+
+// Define session constants (consider moving to a shared file later)
+const SESSION_COOKIE_NAME = "session";
+// Ensure SESSION_SECRET is set in your .env file and is at least 32 characters long
+if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+	throw new Error(
+		"SESSION_SECRET environment variable is not set or is less than 32 characters long. Please define it in your .env file.",
+	);
+}
+const sessionPassword = process.env.SESSION_SECRET;
 
 /**
  * 1. CONTEXT
@@ -25,10 +37,32 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
+	// Helper to get cookies from headers
+	const getCookie = (name: string): string | undefined => {
+		const cookieHeader = opts.headers.get("cookie");
+		if (!cookieHeader) return undefined;
+		const cookies = cookieHeader.split(";").map(c => c.trim());
+		const cookie = cookies.find(c => c.startsWith(`${name}=`));
+		return cookie ? cookie.split("=")[1] : undefined;
+	};
+
 	return {
 		db,
-		...opts,
+		headers: opts.headers,
+		getCookie, // Make the cookie getter available in context
 	};
+};
+
+// Define the expected shape of the user data in the session
+interface SessionUser {
+	uid: string;
+	// Add other properties stored in the session if needed, e.g., email
+}
+
+// Define the context type including the optional user
+// This helps with type safety in protected procedures
+type TRPCContextWithUser = Awaited<ReturnType<typeof createTRPCContext>> & {
+	user?: SessionUser;
 };
 
 /**
@@ -104,3 +138,53 @@ const timingMiddleware = t.middleware(async ({ next, path }) => {
  * are logged in.
  */
 export const publicProcedure = t.procedure.use(timingMiddleware);
+
+// Middleware to check if the user is authenticated
+const isAuthenticated = t.middleware(async ({ ctx, next }) => {
+	const sessionCookie = ctx.getCookie(SESSION_COOKIE_NAME);
+
+	if (!sessionCookie) {
+		throw new TRPCError({ code: "UNAUTHORIZED", message: "Not authenticated." });
+	}
+
+	try {
+		// Attempt to unseal the session data
+		const sessionData = await unsealData<SessionUser>(sessionCookie, {
+			password: sessionPassword,
+		});
+
+		// Check if the essential user identifier (uid) is present
+		if (!sessionData?.uid) {
+			throw new TRPCError({
+				code: "UNAUTHORIZED",
+				message: "Invalid session data.",
+			});
+		}
+
+		// If successful, attach the user data to the context
+		return next({
+			ctx: {
+				...ctx,
+				user: sessionData, // Attach the whole unsealed data as user context
+			} satisfies TRPCContextWithUser, // Assert the context type
+		});
+	} catch (error) {
+		// This catches errors from unsealData (e.g., bad password, tampered cookie)
+		console.error("Session unsealing failed:", error);
+		throw new TRPCError({
+			code: "UNAUTHORIZED",
+			message: "Invalid or expired session.",
+			cause: error instanceof Error ? error : undefined,
+		});
+	}
+});
+
+/**
+ * Protected (authenticated) procedure
+ *
+ * If you want a query or mutation to ONLY be accessible to logged-in users, use this. It verifies
+ * the session is valid and guarantees `ctx.user` is present.
+ *
+ * @see https://trpc.io/docs/procedures
+ */
+export const protectedProcedure = t.procedure.use(timingMiddleware).use(isAuthenticated);
