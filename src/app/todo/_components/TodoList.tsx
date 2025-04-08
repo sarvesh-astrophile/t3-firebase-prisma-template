@@ -51,7 +51,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Pencil, PlusCircle, Trash2, Loader2, FileWarning } from "lucide-react";
 import { Badge } from "@/components/ui/badge"; // For status display
-import { useAuth } from "@/context/AuthContext"; // <-- Import useAuth
+import { useAuth } from "@/context/auth-context"; // <-- Import useAuth
 
 // Validation schemas for forms
 const todoFormSchema = z.object({
