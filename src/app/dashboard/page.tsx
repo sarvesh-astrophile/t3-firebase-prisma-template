@@ -10,8 +10,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { LogOut, User, Home, Settings, BarChart } from "lucide-react";
+import {
+  LogOut,
+  User,
+  Home,
+  Settings,
+  BarChart,
+  ListChecks,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -52,6 +60,16 @@ export default function Dashboard() {
               <Settings className="mr-2 h-4 w-4" />
               Settings
             </Button>
+            <Link href="/todo" passHref>
+              <Button
+                variant="ghost"
+                className="w-full justify-start"
+                size="sm"
+              >
+                <ListChecks className="mr-2 h-4 w-4" />
+                Todo
+              </Button>
+            </Link>
           </nav>
 
           <div className="mt-auto">
