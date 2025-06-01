@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/auth-context";
 
 import { TRPCReactProvider } from "@/trpc/react";
+import { headers } from "next/headers";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -19,13 +20,13 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning={true}>
       <body>
-        <TRPCReactProvider>
+        <TRPCReactProvider headers={await headers()}>
           <AuthProvider>
             <ThemeProvider
               attribute="class"

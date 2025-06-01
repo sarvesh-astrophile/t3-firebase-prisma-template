@@ -1,11 +1,11 @@
 "use client";
 
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  httpBatchStreamLink,
-  httpSubscriptionLink,
   loggerLink,
   splitLink,
+  httpBatchLink,
+  httpBatchStreamLink,
 } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
@@ -43,8 +43,11 @@ export type RouterInputs = inferRouterInputs<AppRouter>;
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
 
-export function TRPCReactProvider(props: { children: React.ReactNode }) {
-  const queryClient = getQueryClient();
+export function TRPCReactProvider(props: {
+  children: React.ReactNode;
+  headers: Headers;
+}) {
+  const [queryClient] = useState(() => new QueryClient());
 
   const [trpcClient] = useState(() =>
     api.createClient({
@@ -56,25 +59,36 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
         }),
         splitLink({
           condition(op) {
-            return op.type === "subscription";
+            return op.path.startsWith("auth.");
           },
-          true: httpSubscriptionLink({
+          true: httpBatchLink({
             url: `${getBaseUrl()}/api/trpc`,
             transformer: SuperJSON,
-          }),
-          false: httpBatchStreamLink({
-            transformer: SuperJSON,
-            url: `${getBaseUrl()}/api/trpc`,
-            fetch: (url, options) => {
+            headers() {
+              const heads = new Map(props.headers);
+              heads.set("x-trpc-source", "react-no-stream");
+              return Object.fromEntries(heads);
+            },
+            fetch: (url: URL | RequestInfo, options?: RequestInit) => {
               return fetch(url, {
                 ...options,
                 credentials: "include",
               });
             },
-            headers: () => {
-              const headers = new Headers();
-              headers.set("x-trpc-source", "nextjs-react-batch");
-              return headers;
+          }),
+          false: httpBatchStreamLink({
+            url: `${getBaseUrl()}/api/trpc`,
+            transformer: SuperJSON,
+            headers() {
+              const heads = new Map(props.headers);
+              heads.set("x-trpc-source", "react-stream");
+              return Object.fromEntries(heads);
+            },
+            fetch: (url: URL | RequestInfo, options?: RequestInit) => {
+              return fetch(url, {
+                ...options,
+                credentials: "include",
+              });
             },
           }),
         }),
